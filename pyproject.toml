@@ -1,0 +1,12 @@
+[project]
+name = "kikoeru-dir-helper"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "patool>=4.0.1",
+    "py7zr>=1.0.0",
+    "python-magic>=0.4.27",
+    "rarfile>=4.2",
+    "watchdog>=6.0.0",
+]
