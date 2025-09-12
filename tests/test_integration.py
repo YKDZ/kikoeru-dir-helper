@@ -16,8 +16,8 @@ from pathlib import Path
 
 # 添加src目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from helper import ArchiveProcessor
-from monitor import ArchiveEventHandler
+from src.helper import ArchiveProcessor
+from src.monitor import ArchiveEventHandler
 
 
 def test_monitor_file_detection():

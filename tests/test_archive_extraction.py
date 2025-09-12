@@ -15,7 +15,7 @@ from pathlib import Path
 
 # 添加src目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from helper import ArchiveProcessor
+from src.helper import ArchiveProcessor
 
 
 def test_zip_extraction():

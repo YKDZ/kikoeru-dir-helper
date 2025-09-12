@@ -17,7 +17,7 @@ from pathlib import Path
 
 # 添加src目录到路径以导入模块
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from helper import ArchiveProcessor
+from src.helper import ArchiveProcessor
 
 
 def create_test_archive(archive_path: Path, content_structure: dict):
