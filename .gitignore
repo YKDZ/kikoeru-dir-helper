@@ -5,3 +5,5 @@ helper.tar
 test_data_*
 
 rarlinux-*
+
+.idea/
