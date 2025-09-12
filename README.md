@@ -43,7 +43,7 @@ Kikoeru Directory Helper 是一个简单的 [kikoeru](https://github.com/kikoeru
 
 接着前往 [官网](https://www.rarlab.com/download.htm) 下载 `rar` 工具的 `linux` 命令行版本（文件名格式类似 `rarlinux-x64-712.tar.gz`），放置在 `docker/libs` 目录下（无需解压）。
 
-之后使用如下命令构建镜像：
+之后在项目根目录使用如下命令构建镜像：
 
 ```bash
 docker buildx build . -f docker/Dockerfile -t ykdz/kikoeru-dir-helper
