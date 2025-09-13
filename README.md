@@ -65,8 +65,7 @@ services:
 #### 环境变量
 
 - `WORK_DIR`: 工作目录路径（默认: /data）
-- `CHECK_INTERVAL`: 扫描工作目录是否有新文件出现的时间间隔，单位秒（默认: 5）
-- `STABILITY_WAIT_TIME`: 执行稳定性检查的时间间隔，单位秒（默认: 15）
-- `MIN_STABLE_CHECKS`: 文件通过几次稳定性检查后视为已经稳定（默认: 2）
+- `CHECK_INTERVAL`: 执行稳定性检查的时间间隔，单位秒（默认: 5）
+- `MIN_STABLE_CHECKS`: 文件通过几次稳定性检查后视为已经稳定（默认: 3）
 - `MAX_WAIT_TIME`: 等待文件稳定的最长时间，单位秒（默认: 3600）
 - `LOG_DIR`: 日志文件存放目录（默认: /data/.helper）

@@ -31,8 +31,7 @@ class ArchiveEventHandler(FileSystemEventHandler):
         self.work_dir = Path(work_dir)
         self.pending_files = {}  # 等待队列
 
-        self.stability_wait_time = int(os.getenv("STABILITY_WAIT_TIME", "15"))
-        self.min_stable_checks = int(os.getenv("MIN_STABLE_CHECKS", "2"))
+        self.min_stable_checks = int(os.getenv("MIN_STABLE_CHECKS", "3"))
         self.max_wait_time = int(os.getenv("MAX_WAIT_TIME", "3600"))
 
     def on_created(self, event):
@@ -46,13 +45,9 @@ class ArchiveEventHandler(FileSystemEventHandler):
             self._handle_new_file(file_path)
 
     def on_modified(self, event):
-        """文件修改事件"""
-        if event.is_directory:
-            return
-
-        file_path = Path(event.src_path)
-        if self._is_archive_file(file_path):
-            self._handle_modified_file(file_path)
+        """文件修改事件 - 移除此方法实现，仅被动检测新文件"""
+        # 不再处理文件修改事件，改为仅通过主动轮询检查文件状态
+        pass
 
     def _is_archive_file(self, file_path):
         """检查是否为支持的压缩文件（包括无扩展名文件）"""
@@ -97,33 +92,6 @@ class ArchiveEventHandler(FileSystemEventHandler):
             f"文件 {file_path} 添加到待处理队列 ({file_size / 1024 / 1024:.2f}MB)"
         )
 
-    def _handle_modified_file(self, file_path):
-        """处理文件修改"""
-        if str(file_path) in self.pending_files:
-            try:
-                current_size = file_path.stat().st_size if file_path.exists() else 0
-                current_mtime = (
-                    file_path.stat().st_mtime if file_path.exists() else time.time()
-                )
-            except OSError:
-                current_size = 0
-                current_mtime = time.time()
-
-            file_info = self.pending_files[str(file_path)]
-
-            # 检查文件大小和修改时间稳定性
-            size_stable = current_size == file_info["last_size"]
-            mtime_stable = current_mtime == file_info.get("last_mtime", 0)
-
-            if size_stable and mtime_stable:
-                file_info["stable_count"] += 1
-            else:
-                file_info["stable_count"] = 0
-                file_info["last_size"] = current_size
-                file_info["last_mtime"] = current_mtime
-
-            file_info["last_check"] = time.time()
-
     def check_pending_files(self):
         """检查待处理文件，处理已稳定的文件"""
         current_time = time.time()
@@ -146,28 +114,34 @@ class ArchiveEventHandler(FileSystemEventHandler):
                 logging.warning(f"无法获取文件信息 {file_path}")
                 continue
 
-            # 计算自上次检查以来的变化
-            size_changed = current_size != file_info["last_size"]
-            mtime_changed = current_mtime != file_info.get("last_mtime", 0)
+            # 记录当前文件信息
+            prev_size = file_info.get("last_size", 0)
+            prev_mtime = file_info.get("last_mtime", 0)
             
             # 更新文件信息
             file_info["last_size"] = current_size
             file_info["last_mtime"] = current_mtime
             file_info["last_check"] = current_time
 
-            # 如果有变化，重置稳定计数
+            # 计算自上次检查以来的变化
+            size_changed = current_size != prev_size
+            mtime_changed = current_mtime != prev_mtime
+            
+            # 重置或增加稳定计数
             if size_changed or mtime_changed:
                 file_info["stable_count"] = 0
                 logging.debug(f"文件 {file_path} 有变化，重置稳定计数")
             else:
-                # 只有在文件创建一定时间后才增加稳定计数
                 time_since_creation = current_time - file_info["created_time"]
-                min_check_delay = 10  # 最小检查延迟时间（秒）
+                min_check_delay = 10 
                 
+                # 稳定且不新
                 if time_since_creation >= min_check_delay:
                     file_info["stable_count"] += 1
+                    logging.debug(f"文件 {file_path} 稳定，稳定计数: {file_info["stable_count"]}")
                 else:
                     file_info["stable_count"] = 0  # 文件太新，不计算稳定性
+                    logging.debug(f"文件 {file_path} 太新，重置稳定计数")
 
             # 检查是否应该处理文件
             time_since_creation = current_time - file_info["created_time"]
@@ -180,21 +154,18 @@ class ArchiveEventHandler(FileSystemEventHandler):
             elif time_since_creation > self.max_wait_time:
                 should_process = True
                 process_reason = f"超时强制处理 ({time_since_creation:.1f}s > {self.max_wait_time}s)"
-
+            
             if should_process:
                 logging.info(f"文件 {file_path} 准备处理: {process_reason}")
                 files_to_process.append(file_path)
                 del self.pending_files[file_path_str]
             else:
                 # 记录等待状态
-                if time_since_creation > self.stability_wait_time:
-                    logging.info(
-                        f"文件 {file_path} 等待中: {time_since_creation:.1f}s, "
-                        f"稳定次数: {file_info['stable_count']}/{self.min_stable_checks}, "
-                        f"大小: {current_size / 1024 / 1024:.2f}MB"
-                    )
-                else:
-                    logging.debug(f"文件 {file_path} 初始等待: {time_since_creation:.1f}s")
+                logging.info(
+                    f"文件 {file_path} 等待中: {time_since_creation:.1f}s, "
+                    f"稳定次数: {file_info['stable_count']}/{self.min_stable_checks}, "
+                    f"大小: {current_size / 1024 / 1024:.2f}MB"
+                )
 
         # 处理稳定的文件
         for file_path in files_to_process:
@@ -226,8 +197,8 @@ class DirectoryMonitor:
         """启动监控"""
         logging.info(f"🔍 开始监控目录: {self.work_dir}")
         logging.info(
-            f"⚙️ 监控配置: 新文件扫描间隔={self.check_interval}s, "
-            f"稳定性检查间隔={self.event_handler.stability_wait_time}s, "
+            f"⚙️ 监控配置: "
+            f"稳定性检查间隔={self.check_interval}s, "
             f"最大等待稳定时间={self.event_handler.max_wait_time}s, "
             f"稳定所需检查次数={self.event_handler.min_stable_checks}"
         )
