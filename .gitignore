@@ -9,3 +9,7 @@ rarlinux-*
 .idea/
 
 kikoeru-dir-helper.tar
+
+.ruff_cache/
+
+.venv

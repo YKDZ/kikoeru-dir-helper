@@ -138,7 +138,7 @@ class ArchiveEventHandler(FileSystemEventHandler):
                 del self.pending_files[file_path_str]
                 continue
 
-            # 获取当前文件信息并更新稳定性检查
+            # 获取当前文件信息
             try:
                 current_size = file_path.stat().st_size
                 current_mtime = file_path.stat().st_mtime
@@ -146,57 +146,55 @@ class ArchiveEventHandler(FileSystemEventHandler):
                 logging.warning(f"无法获取文件信息 {file_path}")
                 continue
 
-            # 检查文件稳定性（在check_pending_files中主动检查）
-            # 但是只有在文件创建一定时间后才开始计算稳定性
-            time_since_creation = current_time - file_info["created_time"]
-
-            # 只有在文件创建至少N秒后才开始检查稳定性（防止刚创建的文件被误判为稳定）
-            min_check_delay = 3  # 最小检查延迟时间（秒）
-
-            if time_since_creation >= min_check_delay:
-                size_stable = current_size == file_info["last_size"]
-                mtime_stable = current_mtime == file_info.get("last_mtime", 0)
-
-                if size_stable and mtime_stable:
-                    file_info["stable_count"] += 1
-                else:
-                    file_info["stable_count"] = 0
-                    file_info["last_size"] = current_size
-                    file_info["last_mtime"] = current_mtime
-            else:
-                # 文件太新，不计算稳定性，但更新文件信息
-                file_info["last_size"] = current_size
-                file_info["last_mtime"] = current_mtime
-                file_info["stable_count"] = 0  # 重置稳定计数
+            # 计算自上次检查以来的变化
+            size_changed = current_size != file_info["last_size"]
+            mtime_changed = current_mtime != file_info.get("last_mtime", 0)
+            
+            # 更新文件信息
+            file_info["last_size"] = current_size
+            file_info["last_mtime"] = current_mtime
             file_info["last_check"] = current_time
 
-            # 修复后的判断逻辑：优先检查稳定性，然后检查超时
+            # 如果有变化，重置稳定计数
+            if size_changed or mtime_changed:
+                file_info["stable_count"] = 0
+                logging.debug(f"文件 {file_path} 有变化，重置稳定计数")
+            else:
+                # 只有在文件创建一定时间后才增加稳定计数
+                time_since_creation = current_time - file_info["created_time"]
+                min_check_delay = 10  # 最小检查延迟时间（秒）
+                
+                if time_since_creation >= min_check_delay:
+                    file_info["stable_count"] += 1
+                else:
+                    file_info["stable_count"] = 0  # 文件太新，不计算稳定性
+
+            # 检查是否应该处理文件
+            time_since_creation = current_time - file_info["created_time"]
             should_process = False
             process_reason = ""
 
             if file_info["stable_count"] >= self.min_stable_checks:
-                # 文件已经稳定，无论时间多长都应该处理
                 should_process = True
                 process_reason = f"文件稳定 (稳定{file_info['stable_count']}次)"
             elif time_since_creation > self.max_wait_time:
-                # 超时强制处理，防止无限等待
                 should_process = True
-                process_reason = (
-                    f"超时强制处理 ({time_since_creation:.1f}s > {self.max_wait_time}s)"
-                )
-            elif time_since_creation > self.stability_wait_time:
-                # 已经等待了基础时间，但文件还不够稳定，继续等待但给出详细信息
-                logging.info(
-                    f"文件 {file_path} 等待中: {time_since_creation:.1f}s, 稳定次数: {file_info['stable_count']}/{self.min_stable_checks}"
-                )
-            else:
-                # 还在初始等待期
-                logging.debug(f"文件 {file_path} 初始等待: {time_since_creation:.1f}s")
+                process_reason = f"超时强制处理 ({time_since_creation:.1f}s > {self.max_wait_time}s)"
 
             if should_process:
                 logging.info(f"文件 {file_path} 准备处理: {process_reason}")
                 files_to_process.append(file_path)
                 del self.pending_files[file_path_str]
+            else:
+                # 记录等待状态
+                if time_since_creation > self.stability_wait_time:
+                    logging.info(
+                        f"文件 {file_path} 等待中: {time_since_creation:.1f}s, "
+                        f"稳定次数: {file_info['stable_count']}/{self.min_stable_checks}, "
+                        f"大小: {current_size / 1024 / 1024:.2f}MB"
+                    )
+                else:
+                    logging.debug(f"文件 {file_path} 初始等待: {time_since_creation:.1f}s")
 
         # 处理稳定的文件
         for file_path in files_to_process:
@@ -219,7 +217,7 @@ class DirectoryMonitor:
         self.running = False
 
         # 从环境变量获取检查间隔
-        self.check_interval = int(os.getenv("CHECK_INTERVAL", "5"))  # 检查间隔（秒）
+        self.check_interval = int(os.getenv("CHECK_INTERVAL", "5"))
 
         # 使用统一日志配置
         setup_logger(work_dir, "monitor.log")
@@ -228,7 +226,10 @@ class DirectoryMonitor:
         """启动监控"""
         logging.info(f"🔍 开始监控目录: {self.work_dir}")
         logging.info(
-            f"⚙️ 监控配置: 检查间隔={self.check_interval}s, 稳定等待={self.event_handler.stability_wait_time}s, 最大等待={self.event_handler.max_wait_time}s"
+            f"⚙️ 监控配置: 新文件扫描间隔={self.check_interval}s, "
+            f"稳定性检查间隔={self.event_handler.stability_wait_time}s, "
+            f"最大等待稳定时间={self.event_handler.max_wait_time}s, "
+            f"稳定所需检查次数={self.event_handler.min_stable_checks}"
         )
 
         # 确保目录存在
