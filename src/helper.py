@@ -370,9 +370,8 @@ class ArchiveProcessor:
         """
         从文件名中提取密码信息
         支持格式：
-        - pass-password1 password2 password3
-        - pass-(password with spaces) password2
-        - pass-(password 1) (password 2) password3
+        - RJ123456 pass-(password 1) (password 2) (password3).zip
+        - RJ123456 pass-(password 1).zip
 
         Args:
             file_path: 文件路径
@@ -381,40 +380,40 @@ class ArchiveProcessor:
             Tuple[Optional[str], str]: (密码, 清理后的文件名)
         """
         filename = file_path.name
-
-        # 查找密码模式: " pass-xxx"
-        pattern = r"\s+pass-([^.]+)"
+        
+        # 查找密码模式: " pass-(password1) (password2) (password3)"
+        pattern = r"\s+pass-((?:\([^)]+\)\s*)+)"
         match = re.search(pattern, filename, re.IGNORECASE)
-
-        if match:
-            password_part = match.group(1).strip()
-
-            # 解析密码，支持括号包裹的空格密码
-            passwords = self._parse_passwords(password_part)
-            current_password = passwords[0] if passwords else None
-
-            # 移除当前密码，保留剩余密码
-            remaining_passwords = passwords[1:] if len(passwords) > 1 else []
-
-            # 重建文件名：移除当前密码，保留剩余密码（如果有）
-            if remaining_passwords:
-                # 重新格式化剩余密码
-                formatted_passwords = []
-                for pwd in remaining_passwords:
-                    if " " in pwd:
-                        formatted_passwords.append(f"({pwd})")
-                    else:
-                        formatted_passwords.append(pwd)
-                new_password_part = f" pass-{' '.join(formatted_passwords)}"
-                clean_filename = re.sub(
-                    pattern, new_password_part, filename, flags=re.IGNORECASE
-                )
-            else:
-                clean_filename = re.sub(pattern, "", filename, flags=re.IGNORECASE)
-
-            return current_password, clean_filename
-
-        return None, filename
+        
+        if not match:
+            return None, filename
+            
+        password_part = match.group(1).strip()
+        
+        # 提取所有括号内的密码
+        password_matches = re.findall(r"\(([^)]+)\)", password_part)
+        
+        if not password_matches:
+            return None, filename
+            
+        # 第一个密码作为当前密码
+        current_password = password_matches[0]
+        
+        # 剩余的密码
+        remaining_passwords = password_matches[1:]
+        
+        # 构建清理后的文件名
+        if remaining_passwords:
+            # 保留剩余密码
+            remaining_part = " ".join([f"({pwd})" for pwd in remaining_passwords])
+            clean_filename = re.sub(
+                pattern, f" pass-{remaining_part}", filename, flags=re.IGNORECASE
+            )
+        else:
+            # 没有剩余密码，完全移除密码部分
+            clean_filename = re.sub(pattern, "", filename, flags=re.IGNORECASE)
+        
+        return current_password, clean_filename
 
     def _extract_archive_by_type(
         self,
